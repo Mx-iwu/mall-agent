@@ -1,0 +1,27 @@
+# Environments
+.env
+mallmate_ai/.env
+mallmate_ai/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Antigravity/Gemini data
+.gemini/
+.agent/
+_agent/
+.agents/
+_agents/
+
+# Logs and Temp
+server_log.txt
+tunnel_url.txt
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
