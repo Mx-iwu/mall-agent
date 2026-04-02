@@ -6,7 +6,12 @@ from dotenv import load_dotenv
 # Load local .env for local testing (Railway sets its own env vars)
 load_dotenv()
 
-app = FastAPI()
+# Project Metadata for Copilot Studio Generative AI
+app = FastAPI(
+    title="Mall Assistant Data API",
+    description="Provides real-time information about mall deals, store offers, and upcoming events.",
+    version="1.0.0"
+)
 
 # Environment Variables (Set these in Railway Dashboard)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -23,7 +28,11 @@ try:
 except Exception as e:
     print(f"❌ CRITICAL: Failed to initialize Supabase client: {e}")
 
-@app.get("/deals")
+@app.get(
+    "/deals", 
+    summary="Get Mall Deals and Store Offers",
+    description="Returns a list of all current discounts, sales, and special offers available from stores in the mall."
+)
 def get_deals():
     if not supabase:
         return {"error": "Database not initialized. Check Railway environment variables."}
@@ -33,7 +42,11 @@ def get_deals():
     except Exception as e:
         return {"error": f"Database query failed: {e}"}
 
-@app.get("/events")
+@app.get(
+    "/events",
+    summary="Get Mall Events and Activities",
+    description="Returns a list of upcoming live events, performances, activities, and schedules happening at the mall."
+)
 def get_events():
     if not supabase:
         return {"error": "Database not initialized. Check Railway environment variables."}
@@ -43,7 +56,7 @@ def get_events():
     except Exception as e:
         return {"error": f"Database query failed: {e}"}
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def home():
     status = "UP" if supabase else "CONFIG_ERROR"
     return {
