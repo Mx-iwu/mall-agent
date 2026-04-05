@@ -1,0 +1,217 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Mall Assistant Data API",
+    "description": "Provides real-time information about mall deals, store offers, events, user history, and directions.",
+    "version": "1.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://mall-agent-production.up.railway.app/"
+    }
+  ],
+  "paths": {
+    "/deals": {
+      "get": {
+        "summary": "Get Mall Deals and Store Offers",
+        "description": "Returns a list of all current discounts, sales, and special offers available from stores in the mall.",
+        "operationId": "getDeals",
+        "responses": {
+          "200": {
+            "description": "A list of current mall deals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Deal"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "summary": "Get Mall Events and Activities",
+        "description": "Returns a list of upcoming live events, performances, activities, and schedules happening at the mall.",
+        "operationId": "getEvents",
+        "responses": {
+          "200": {
+            "description": "A list of upcoming events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/user": {
+      "get": {
+        "summary": "Find Existing User Profile",
+        "description": "Search for a user by name, email, or phone number to recognize an existing customer.",
+        "operationId": "getUser",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Name, email, or phone number of the customer."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User profile data if found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Register or Update User",
+        "description": "Registers a new user or updates the details and last activity of an existing user.",
+        "operationId": "registerUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserCreate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The registered or updated user object.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "get": {
+        "summary": "Get User Order History",
+        "description": "Fetch a list of orders for a specific user identified by their phone number.",
+        "operationId": "getOrders",
+        "parameters": [
+          {
+            "name": "phone_number",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The user's phone number."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of the user's orders.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Order" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/directions": {
+      "get": {
+        "summary": "Get Mall Directions",
+        "description": "Provides detailed directions from an origin to a destination using Google Maps.",
+        "operationId": "getDirections",
+        "parameters": [
+          {
+            "name": "origin",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON object containing direction results from Google Maps."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Deal": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "store_name": { "type": "string" },
+          "offer": { "type": "string" },
+          "discount": { "type": "string" },
+          "valid_until": { "type": "string", "format": "date" }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "location_description": { "type": "string" },
+          "schedule": { "type": "string" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "phone_number": { "type": "string" },
+          "email": { "type": "string" },
+          "last_activity": { "type": "string" },
+          "last_visit": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UserCreate": {
+        "type": "object",
+        "required": ["name", "phone_number", "email"],
+        "properties": {
+          "name": { "type": "string" },
+          "phone_number": { "type": "string" },
+          "email": { "type": "string" },
+          "last_activity": { "type": "string" }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "item_name": { "type": "string" },
+          "status": { "type": "string" },
+          "order_date": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}
