@@ -1,9 +1,9 @@
 import os
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from supabase import create_client
 from dotenv import load_dotenv
 from pydantic import BaseModel
-import googlemaps
 from typing import Optional, List
 
 # Load local .env for local testing (Railway sets its own env vars)
@@ -12,16 +12,16 @@ load_dotenv()
 # Project Metadata for Copilot Studio Generative AI
 app = FastAPI(
     title="Mall Assistant Data API",
-    description="Provides real-time information about mall deals, store offers, events, and user history.",
-    version="1.1.0"
+    description="Provides real-time information about mall deals, store offers, events, and user history with Mapbox Directions.",
+    version="1.2.0"
 )
 
 # Environment Variables (Set these in Railway Dashboard)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")
 
-# Initialize client safely to avoid startup crashes
+# Initialize Supabase client
 supabase = None
 try:
     if SUPABASE_URL and SUPABASE_KEY:
@@ -32,12 +32,6 @@ try:
 except Exception as e:
     print(f"❌ CRITICAL: Failed to initialize Supabase client: {e}")
 
-# Initialize Google Maps client
-gmaps = None
-if GOOGLE_MAPS_API_KEY:
-    gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
-    print("✅ Google Maps client initialized.")
-
 # --- Pydantic Models ---
 class UserCreate(BaseModel):
     name: str
@@ -45,12 +39,20 @@ class UserCreate(BaseModel):
     email: str
     last_activity: Optional[str] = None
 
-class Order(BaseModel):
-    id: str
-    user_id: str
-    item_name: str
-    status: str
-    order_date: str
+# --- Helpers ---
+
+def get_coordinates(address: str):
+    """Converts an address or location name to coordinates using Mapbox Geocoding API."""
+    if not MAPBOX_ACCESS_TOKEN:
+        return None
+    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{address}.json"
+    params = {"access_token": MAPBOX_ACCESS_TOKEN, "limit": 1}
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        if data["features"]:
+            return data["features"][0]["center"]  # [longitude, latitude]
+    return None
 
 # --- Endpoints ---
 
@@ -91,7 +93,6 @@ def get_user(identifier: str):
     if not supabase:
         return {"error": "Database not initialized."}
     try:
-        # Search by phone, email, or name
         for field in ["phone_number", "email", "name"]:
             response = supabase.table("users").select("*").eq(field, identifier).execute()
             if response.data:
@@ -109,23 +110,17 @@ def register_user(user: UserCreate):
     if not supabase:
         return {"error": "Database not initialized."}
     try:
-        # Check if user exists (by phone)
         existing = supabase.table("users").select("*").eq("phone_number", user.phone_number).execute()
-        
         data = {
             "name": user.name,
             "phone_number": user.phone_number,
             "email": user.email,
             "last_activity": user.last_activity
         }
-        
         if existing.data:
-            # Update
             response = supabase.table("users").update(data).eq("phone_number", user.phone_number).execute()
         else:
-            # Insert
             response = supabase.table("users").insert(data).execute()
-            
         return response.data
     except Exception as e:
         return {"error": f"Operation failed: {e}"}
@@ -139,11 +134,9 @@ def get_orders(phone_number: str):
     if not supabase:
         return {"error": "Database not initialized."}
     try:
-        # Find user first
         user_response = supabase.table("users").select("id").eq("phone_number", phone_number).execute()
         if not user_response.data:
             return {"error": "User not found."}
-        
         user_id = user_response.data[0]["id"]
         orders_response = supabase.table("customer_orders").select("*").eq("user_id", user_id).execute()
         return orders_response.data
@@ -153,25 +146,41 @@ def get_orders(phone_number: str):
 @app.get(
     "/directions",
     summary="Get Mall Directions",
-    description="Provides detailed directions from a given origin to a specific store or location in the mall using Google Maps."
+    description="Provides walking directions between two mall locations (origin and destination) using Mapbox."
 )
 def get_directions(origin: str, destination: str):
-    if not gmaps:
-        return {"error": "Google Maps API not configured. Check GOOGLE_MAPS_API_KEY."}
-    try:
-        directions_result = gmaps.directions(origin, destination, mode="walking")
-        if not directions_result:
-            return {"error": "No route found."}
-        return directions_result
-    except Exception as e:
-        return {"error": f"Google Maps error: {e}"}
+    if not MAPBOX_ACCESS_TOKEN:
+        return {"error": "Mapbox Access Token not configured. Check MAPBOX_ACCESS_TOKEN."}
+    
+    # 1. Geocode both locations
+    start_coords = get_coordinates(origin)
+    end_coords = get_coordinates(destination)
+    
+    if not start_coords or not end_coords:
+        return {"error": f"Could not find coordinates for {origin} or {destination}."}
+    
+    # 2. Get directions from Mapbox
+    # Format: lon,lat;lon,lat
+    coords_str = f"{start_coords[0]},{start_coords[1]};{end_coords[0]},{end_coords[1]}"
+    url = f"https://api.mapbox.com/directions/v5/mapbox/walking/{coords_str}"
+    params = {
+        "access_token": MAPBOX_ACCESS_TOKEN,
+        "geometries": "geojson",
+        "steps": "true"
+    }
+    
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return {"error": f"Mapbox API error: {response.text}"}
 
 @app.get("/", include_in_schema=False)
 def home():
-    status = "UP" if (supabase and gmaps) else "PARTIAL_CONFIG"
+    status = "UP" if (supabase and MAPBOX_ACCESS_TOKEN) else "PARTIAL_CONFIG"
     return {
         "status": status,
         "supabase_initialized": bool(supabase),
-        "google_maps_initialized": bool(gmaps),
+        "mapbox_initialized": bool(MAPBOX_ACCESS_TOKEN),
         "endpoints": ["/deals", "/events", "/user", "/orders", "/directions"]
     }
