@@ -12,14 +12,18 @@ load_dotenv()
 # Project Metadata for Copilot Studio Generative AI
 app = FastAPI(
     title="Mall Assistant Data API",
-    description="Provides real-time information about mall deals, store offers, events, and user history with Mapbox Directions.",
-    version="1.2.0"
+    description="Provides real-time information about mall deals, store offers, events, and user history with multi-mode Mapbox Directions.",
+    version="1.3.0"
 )
 
 # Environment Variables (Set these in Railway Dashboard)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")
+
+# Virtual Mall Location: Ikeja City Mall, Lagos
+MALL_LON = 3.3333
+MALL_LAT = 6.5833
 
 # Initialize Supabase client
 supabase = None
@@ -45,6 +49,17 @@ def get_coordinates(address: str):
     """Converts an address or location name to coordinates using Mapbox Geocoding API."""
     if not MAPBOX_ACCESS_TOKEN:
         return None
+    
+    # Check if the address is already coordinates (e.g., "6.45,3.39")
+    try:
+        parts = address.split(",")
+        if len(parts) == 2:
+            lat = float(parts[0].strip())
+            lon = float(parts[1].strip())
+            return [lon, lat] # Mapbox uses [lon, lat]
+    except ValueError:
+        pass
+
     url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{address}.json"
     params = {"access_token": MAPBOX_ACCESS_TOKEN, "limit": 1}
     response = requests.get(url, params=params)
@@ -54,133 +69,116 @@ def get_coordinates(address: str):
             return data["features"][0]["center"]  # [longitude, latitude]
     return None
 
-# --- Endpoints ---
-
-@app.get(
-    "/deals", 
-    summary="Get Mall Deals and Store Offers",
-    description="Returns a list of all current discounts, sales, and special offers available from stores in the mall."
-)
-def get_deals():
-    if not supabase:
-        return {"error": "Database not initialized. Check Railway environment variables."}
-    try:
-        response = supabase.table("deals").select("*").execute()
-        return response.data
-    except Exception as e:
-        return {"error": f"Database query failed: {e}"}
-
-@app.get(
-    "/events",
-    summary="Get Mall Events and Activities",
-    description="Returns a list of upcoming live events, performances, activities, and schedules happening at the mall."
-)
-def get_events():
-    if not supabase:
-        return {"error": "Database not initialized. Check Railway environment variables."}
-    try:
-        response = supabase.table("events").select("*").execute()
-        return response.data
-    except Exception as e:
-        return {"error": f"Database query failed: {e}"}
-
-@app.get(
-    "/user",
-    summary="Find Existing User Profile",
-    description="Search for a user by name, email, or phone number to recognize an existing customer."
-)
-def get_user(identifier: str):
-    if not supabase:
-        return {"error": "Database not initialized."}
-    try:
-        for field in ["phone_number", "email", "name"]:
-            response = supabase.table("users").select("*").eq(field, identifier).execute()
-            if response.data:
-                return response.data
-        return {"message": "User not found."}
-    except Exception as e:
-        return {"error": f"Query failed: {e}"}
-
-@app.post(
-    "/user",
-    summary="Register or Update User",
-    description="Registers a new user or updates the details and last activity of an existing user."
-)
-def register_user(user: UserCreate):
-    if not supabase:
-        return {"error": "Database not initialized."}
-    try:
-        existing = supabase.table("users").select("*").eq("phone_number", user.phone_number).execute()
-        data = {
-            "name": user.name,
-            "phone_number": user.phone_number,
-            "email": user.email,
-            "last_activity": user.last_activity
-        }
-        if existing.data:
-            response = supabase.table("users").update(data).eq("phone_number", user.phone_number).execute()
-        else:
-            response = supabase.table("users").insert(data).execute()
-        return response.data
-    except Exception as e:
-        return {"error": f"Operation failed: {e}"}
-
-@app.get(
-    "/orders",
-    summary="Get User Order History",
-    description="Fetch a list of orders for a specific user identified by their phone number."
-)
-def get_orders(phone_number: str):
-    if not supabase:
-        return {"error": "Database not initialized."}
-    try:
-        user_response = supabase.table("users").select("id").eq("phone_number", phone_number).execute()
-        if not user_response.data:
-            return {"error": "User not found."}
-        user_id = user_response.data[0]["id"]
-        orders_response = supabase.table("customer_orders").select("*").eq("user_id", user_id).execute()
-        return orders_response.data
-    except Exception as e:
-        return {"error": f"Query failed: {e}"}
-
-@app.get(
-    "/directions",
-    summary="Get Mall Directions",
-    description="Provides walking directions between two mall locations (origin and destination) using Mapbox."
-)
-def get_directions(origin: str, destination: str):
-    if not MAPBOX_ACCESS_TOKEN:
-        return {"error": "Mapbox Access Token not configured. Check MAPBOX_ACCESS_TOKEN."}
-    
-    # 1. Geocode both locations
-    start_coords = get_coordinates(origin)
-    end_coords = get_coordinates(destination)
-    
-    if not start_coords or not end_coords:
-        return {"error": f"Could not find coordinates for {origin} or {destination}."}
-    
-    # 2. Get directions from Mapbox
-    # Format: lon,lat;lon,lat
+def fetch_mapbox_route(profile: str, start_coords: list, end_coords: list):
+    """Fetches a specific route profile from Mapbox."""
     coords_str = f"{start_coords[0]},{start_coords[1]};{end_coords[0]},{end_coords[1]}"
-    url = f"https://api.mapbox.com/directions/v5/mapbox/walking/{coords_str}"
+    url = f"https://api.mapbox.com/directions/v5/mapbox/{profile}/{coords_str}"
     params = {
         "access_token": MAPBOX_ACCESS_TOKEN,
         "geometries": "geojson",
-        "steps": "true"
+        "steps": "true",
+        "overview": "full"
     }
-    
     response = requests.get(url, params=params)
     if response.status_code == 200:
-        return response.json()
+        data = response.json()
+        if data["routes"]:
+            route = data["routes"][0]
+            # Extract basic instructions
+            instructions = [step["maneuver"]["instruction"] for leg in route["legs"] for step in leg["steps"]]
+            return {
+                "distance_meters": route["distance"],
+                "duration_seconds": route["duration"],
+                "instructions": instructions
+            }
+    return None
+
+# --- Endpoints ---
+
+@app.get("/deals", summary="Get Mall Deals")
+def get_deals():
+    if not supabase: return {"error": "DB error"}
+    try:
+        return supabase.table("deals").select("*").execute().data
+    except Exception as e: return {"error": str(e)}
+
+@app.get("/events", summary="Get Mall Events")
+def get_events():
+    if not supabase: return {"error": "DB error"}
+    try:
+        return supabase.table("events").select("*").execute().data
+    except Exception as e: return {"error": str(e)}
+
+@app.get("/user", summary="Find User")
+def get_user(identifier: str):
+    if not supabase: return {"error": "DB error"}
+    try:
+        for field in ["phone_number", "email", "name"]:
+            res = supabase.table("users").select("*").eq(field, identifier).execute()
+            if res.data: return res.data
+        return {"message": "Not found"}
+    except Exception as e: return {"error": str(e)}
+
+@app.post("/user", summary="Register User")
+def register_user(user: UserCreate):
+    if not supabase: return {"error": "DB error"}
+    try:
+        data = user.dict()
+        existing = supabase.table("users").select("*").eq("phone_number", user.phone_number).execute()
+        if existing.data:
+            return supabase.table("users").update(data).eq("phone_number", user.phone_number).execute().data
+        return supabase.table("users").insert(data).execute().data
+    except Exception as e: return {"error": str(e)}
+
+@app.get("/orders", summary="Get Orders")
+def get_orders(phone_number: str):
+    if not supabase: return {"error": "DB error"}
+    try:
+        user = supabase.table("users").select("id").eq("phone_number", phone_number).execute()
+        if not user.data: return {"error": "User not found"}
+        return supabase.table("customer_orders").select("*").eq("user_id", user.data[0]["id"]).execute().data
+    except Exception as e: return {"error": str(e)}
+
+@app.get(
+    "/directions",
+    summary="Get Multi-Mode Mall Directions",
+    description="Calculates both Driving and Walking directions from the user's location to Ikeja City Mall."
+)
+def get_directions(origin: str, destination: Optional[str] = "Ikeja City Mall"):
+    if not MAPBOX_ACCESS_TOKEN:
+        return {"error": "Mapbox Token missing"}
+    
+    # 1. Resolve coordinates
+    start_coords = get_coordinates(origin)
+    
+    # Destination is fixed to the Mall if not specified or matching mall name
+    if destination.lower() in ["ikeja city mall", "the mall", "mall"]:
+        end_coords = [MALL_LON, MALL_LAT]
     else:
-        return {"error": f"Mapbox API error: {response.text}"}
+        end_coords = get_coordinates(destination)
+    
+    if not start_coords or not end_coords:
+        return {"error": "Could not resolve locations."}
+    
+    # 2. Fetch both Driving and Walking routes
+    driving_route = fetch_mapbox_route("driving", start_coords, end_coords)
+    walking_route = fetch_mapbox_route("walking", start_coords, end_coords)
+    
+    return {
+        "origin_coordinates": start_coords,
+        "destination_name": destination,
+        "destination_coordinates": end_coords,
+        "routes": {
+            "driving": driving_route,
+            "walking": walking_route
+        }
+    }
 
 @app.get("/", include_in_schema=False)
 def home():
-    status = "UP" if (supabase and MAPBOX_ACCESS_TOKEN) else "PARTIAL_CONFIG"
     return {
-        "status": status,
-        "supabase_initialized": bool(supabase),
+        "status": "UP",
         "mapbox_initialized": bool(MAPBOX_ACCESS_TOKEN),
+        "mall_location": {"lat": MALL_LAT, "lon": MALL_LON},
         "endpoints": ["/deals", "/events", "/user", "/orders", "/directions"]
     }
