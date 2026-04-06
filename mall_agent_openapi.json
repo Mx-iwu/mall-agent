@@ -2,8 +2,8 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Mall Assistant Data API",
-    "description": "Provides real-time information about mall deals, store offers, events, user history, and multi-mode directions.",
-    "version": "1.3.0"
+    "description": "Provides real-time information about mall deals, store offers, events, user history, directions, and the full store/dining directory.",
+    "version": "1.4.0"
   },
   "servers": [
     {
@@ -22,6 +22,30 @@
       "get": {
         "summary": "Get Mall Events",
         "operationId": "getEvents",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/stores": {
+      "get": {
+        "summary": "Get Store Directory",
+        "description": "Search for fashion, sports, and accessories stores by floor or category.",
+        "operationId": "getStores",
+        "parameters": [
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "floor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/dining": {
+      "get": {
+        "summary": "Get Dining Directory",
+        "description": "Search for food court, premium dining, and quick service outlets by floor or cuisine.",
+        "operationId": "getDining",
+        "parameters": [
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "cuisine", "in": "query", "schema": { "type": "string" } }
+        ],
         "responses": { "200": { "description": "OK" } }
       }
     },
@@ -59,30 +83,10 @@
         "summary": "Get Mall Directions (Driving & Walking)",
         "operationId": "getDirections",
         "parameters": [
-          { "name": "origin", "in": "query", "required": true, "schema": { "type": "string" }, "description": "User's current location or coordinates (lat,lon)." },
-          { "name": "destination", "in": "query", "schema": { "type": "string" }, "description": "Defaulted to Ikeja City Mall if left blank." }
+          { "name": "origin", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "destination", "in": "query", "schema": { "type": "string" } }
         ],
-        "responses": {
-          "200": {
-            "description": "Multi-mode route summary",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "routes": {
-                      "type": "object",
-                      "properties": {
-                        "driving": { "$ref": "#/components/schemas/Route" },
-                        "walking": { "$ref": "#/components/schemas/Route" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        "responses": { "200": { "description": "OK" } }
       }
     }
   },
@@ -96,14 +100,6 @@
           "phone_number": { "type": "string" },
           "email": { "type": "string" },
           "last_activity": { "type": "string" }
-        }
-      },
-      "Route": {
-        "type": "object",
-        "properties": {
-          "distance_meters": { "type": "number" },
-          "duration_seconds": { "type": "number" },
-          "instructions": { "type": "array", "items": { "type": "string" } }
         }
       }
     }

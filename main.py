@@ -95,49 +95,129 @@ def fetch_mapbox_route(profile: str, start_coords: list, end_coords: list):
 
 # --- Endpoints ---
 
-@app.get("/deals", summary="Get Mall Deals")
+@app.get(
+    "/deals", 
+    summary="Get Mall Deals and Store Offers",
+    description="Returns a list of all current discounts, sales, and special offers available from stores in the mall."
+)
 def get_deals():
-    if not supabase: return {"error": "DB error"}
+    if not supabase:
+        return {"error": "Database not initialized. Check Railway environment variables."}
     try:
-        return supabase.table("deals").select("*").execute().data
-    except Exception as e: return {"error": str(e)}
+        response = supabase.table("deals").select("*").execute()
+        return response.data
+    except Exception as e:
+        return {"error": f"Database query failed: {e}"}
 
-@app.get("/events", summary="Get Mall Events")
+@app.get(
+    "/events",
+    summary="Get Mall Events and Activities",
+    description="Returns a list of upcoming live events, performances, activities, and schedules happening at the mall."
+)
 def get_events():
-    if not supabase: return {"error": "DB error"}
+    if not supabase:
+        return {"error": "Database not initialized. Check Railway environment variables."}
     try:
-        return supabase.table("events").select("*").execute().data
+        response = supabase.table("events").select("*").execute()
+        return response.data
+    except Exception as e:
+        return {"error": f"Database query failed: {e}"}
+
+@app.get(
+    "/stores",
+    summary="Get Store Directory",
+    description="Search for fashion, sports, and accessories stores. Filter by floor or category (Fashion, Sports, Accessories, Electronics)."
+)
+def get_stores(category: Optional[str] = None, floor: Optional[str] = None):
+    if not supabase: return {"error": "DB error"}
+    query = supabase.table("stores").select("*")
+    if category: query = query.eq("category", category)
+    if floor: query = query.eq("floor", floor)
+    try:
+        return query.execute().data
     except Exception as e: return {"error": str(e)}
 
-@app.get("/user", summary="Find User")
+@app.get(
+    "/dining",
+    summary="Get Dining Directory",
+    description="Search for food court, premium dining, and quick service outlets. Filter by floor or cuisine."
+)
+def get_dining(category: Optional[str] = None, cuisine: Optional[str] = None):
+    if not supabase: return {"error": "DB error"}
+    query = supabase.table("dining").select("*")
+    if category: query = query.eq("category", category)
+    if cuisine: query = query.eq("cuisine", cuisine)
+    try:
+        return query.execute().data
+    except Exception as e: return {"error": str(e)}
+
+@app.get(
+    "/user",
+    summary="Find Existing User Profile",
+    description="Search for a user by name, email, or phone number."
+)
 def get_user(identifier: str):
-    if not supabase: return {"error": "DB error"}
+    if not supabase:
+        return {"error": "Database not initialized."}
     try:
+        # Search by phone, email, or name
         for field in ["phone_number", "email", "name"]:
-            res = supabase.table("users").select("*").eq(field, identifier).execute()
-            if res.data: return res.data
-        return {"message": "Not found"}
-    except Exception as e: return {"error": str(e)}
+            response = supabase.table("users").select("*").eq(field, identifier).execute()
+            if response.data:
+                return response.data
+        return {"message": "User not found."}
+    except Exception as e:
+        return {"error": f"Query failed: {e}"}
 
-@app.post("/user", summary="Register User")
+@app.post(
+    "/user",
+    summary="Register or Update User",
+    description="Registers a new user or updates the details and last activity of an existing user."
+)
 def register_user(user: UserCreate):
-    if not supabase: return {"error": "DB error"}
+    if not supabase:
+        return {"error": "Database not initialized."}
     try:
-        data = user.dict()
+        # Check if user exists (by phone)
         existing = supabase.table("users").select("*").eq("phone_number", user.phone_number).execute()
+        
+        data = {
+            "name": user.name,
+            "phone_number": user.phone_number,
+            "email": user.email,
+            "last_activity": user.last_activity
+        }
+        
         if existing.data:
-            return supabase.table("users").update(data).eq("phone_number", user.phone_number).execute().data
-        return supabase.table("users").insert(data).execute().data
-    except Exception as e: return {"error": str(e)}
+            # Update
+            response = supabase.table("users").update(data).eq("phone_number", user.phone_number).execute()
+        else:
+            # Insert
+            response = supabase.table("users").insert(data).execute()
+            
+        return response.data
+    except Exception as e:
+        return {"error": f"Operation failed: {e}"}
 
-@app.get("/orders", summary="Get Orders")
+@app.get(
+    "/orders",
+    summary="Get User Order History",
+    description="Fetch a list of orders for a specific user identified by their phone number."
+)
 def get_orders(phone_number: str):
-    if not supabase: return {"error": "DB error"}
+    if not supabase:
+        return {"error": "Database not initialized."}
     try:
-        user = supabase.table("users").select("id").eq("phone_number", phone_number).execute()
-        if not user.data: return {"error": "User not found"}
-        return supabase.table("customer_orders").select("*").eq("user_id", user.data[0]["id"]).execute().data
-    except Exception as e: return {"error": str(e)}
+        # Find user first
+        user_response = supabase.table("users").select("id").eq("phone_number", phone_number).execute()
+        if not user_response.data:
+            return {"error": "User not found."}
+        
+        user_id = user_response.data[0]["id"]
+        orders_response = supabase.table("customer_orders").select("*").eq("user_id", user_id).execute()
+        return orders_response.data
+    except Exception as e:
+        return {"error": f"Query failed: {e}"}
 
 @app.get(
     "/directions",
@@ -176,9 +256,10 @@ def get_directions(origin: str, destination: Optional[str] = "Ikeja City Mall"):
 
 @app.get("/", include_in_schema=False)
 def home():
+    status = "UP" if (supabase and MAPBOX_ACCESS_TOKEN) else "PARTIAL_CONFIG"
     return {
-        "status": "UP",
+        "status": status,
+        "supabase_initialized": bool(supabase),
         "mapbox_initialized": bool(MAPBOX_ACCESS_TOKEN),
-        "mall_location": {"lat": MALL_LAT, "lon": MALL_LON},
-        "endpoints": ["/deals", "/events", "/user", "/orders", "/directions"]
+        "endpoints": ["/deals", "/events", "/user", "/orders", "/directions", "/stores", "/dining"]
     }
